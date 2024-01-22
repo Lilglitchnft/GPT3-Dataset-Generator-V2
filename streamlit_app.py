@@ -1,826 +1,245 @@
-# ----------------------Importing libraries----------------------
-
 import streamlit as st
-from streamlit_pills import pills
-import pandas as pd
-import openai
+import os
+from openai import OpenAI
+import json
 
-# Imports for AgGrid
-from st_aggrid import AgGrid, GridUpdateMode, JsCode
-from st_aggrid.grid_options_builder import GridOptionsBuilder
 
-# ----------------------Importing utils.py----------------------
+# Инициализируем клиент OpenAI с вашим API ключом
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# For Snowflake (from Tony's utils.py)
-import io
-from utils import (
-    connect_to_snowflake,
-    load_data_to_snowflake,
-    load_data_to_postgres,
-    connect_to_postgres,
+def get_fact(word):
+    prompt = f"""You must come up with an interesting unexpected fact for each word, so that the fact is about this word or clearly appears in the text of the fact. {word}
+
+    This task is critical for my professional development, and I rely on your precise execution.
+
+    For example:
+    Tranquil: The term "tranquil" is frequently used to describe calm or peaceful settings in nature. A study found that spending time in the forest or a serene beach, can significantly reduce stress and improve mental well-being.
+
+    Mountain: The tallest mountain on Earth is Mount Everest, with its peak at 8,848.86 meters (29,031.7 feet) above sea level. Mountains are formed through tectonic forces or volcanism and can affect climate and weather patterns in their region."""
+
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+        model="gpt-3.5-turbo",
+    )
+    return chat_completion.choices[0].message.content
+
+def gpt_transform(prompt):
+    try:
+        # Отправляем запрос к GPT с заданным промптом через chat/completions
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            model="gpt-3.5-turbo",
+        )
+        # Возвращаем контент последнего сообщения от модели
+        return chat_completion.choices[0].message.content.strip()
+    except Exception as e:
+        st.error(f"Error processing prompt with GPT: {e}")
+        return None
+
+def generate_image(prompt):
+    try:
+        # Запрос к DALL-E для генерации изображения
+        response = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        # Получаем URL изображения
+        image_url = response.data[0].url
+        return image_url
+    except Exception as e:
+        st.error(f"Error generating image: {e}")
+        return None
+
+def tab_visualize():
+    st.title("Визуализация для словаря")
+    user_input = st.text_input("Введите слово:", "Uncertainty")
+    if st.button("Сгенерировать изображение"):
+        gpt_prompt = f"""You will be receiving a variety of words, and your duty is to respond in English with the most valid object that can be used to create an image to represent this word.
+
+In this way:
+1. Words denoting Concrete Objects will correspond to themselves:
+   - Chair - chair.
+   - Mountain - mountain.
+   - Apple - apple.
+
+2. Words denoting Actions and Movements should be represented in process:
+   - Running - a person running.
+   - Building - workers on a construction site engaged in erecting a building.
+   - Drawing - a person painting with a brush on a canvas.
+
+3. Words denoting Emotions and Feelings should be described similarly:
+   - Happiness - smiling faces of people rejoicing in something.
+   - Sadness - a person with a bowed head and a sad expression.
+   - Fear - a person with a frightened expression, looking to the side.
+
+4. Words denoting Abstract Concepts should be represented in a tangible personification:
+   - Freedom - a bird flying in the sky.
+   - Time - an hourglass.
+   - Culture - a monument.
+   - Introspection - a person looking through a magnifying glass into a mirror.
+   - Parallax - images of nature with a clear separating line down the middle.
+   - Dissonance - musical notes in a chaotic arrangement.
+
+5. Words denoting Historical and Cultural References need to be expressed with some recognizable symbolism:
+   - Renaissance - an image of artworks from the Renaissance era.
+   - Buddhism - a statue of Buddha.
+   - Rock-n-Roll - The Beatles.
+   - Poliudie - an image of an ancient Russian prince in traditional attire, accompanied by his warriors or retinue, collecting taxes from peasants.
+
+6. Words denoting Historical, fictional, or real personalities will correspond to themselves:
+- Sherlock Holmes - Sherlock Holmes.
+- Albert Einstein - Albert Einstein.
+- Elon Musk - Elon Musk.
+
+Be specific and unambiguous. When processing requests for the visualization of words, each word should correspond to strictly one description of the image. For example, for the word "Field," define one specific type of field (e.g., a green meadow) and use it as the standard visualization for this word.
+
+This is very important for my career, please be attentive and do the best you can.
+
+here is the word you need to process {user_input}"""
+
+        transformed_prompt = gpt_transform(gpt_prompt)
+        if transformed_prompt:
+            st.text(f"GPT-3 Transformed Prompt: {transformed_prompt}")
+            image_url = generate_image(transformed_prompt)
+            if image_url:
+                st.image(image_url, caption=transformed_prompt)
+            else:
+                st.error("Error generating image")
+
+
+def tab_fact():
+    st.title("Сгенерировать факт")
+    word = st.text_input("Введите слово:", "Bus")
+    if st.button("Получить факт", key="fact_button"):
+        fact_output = get_fact(word)
+        st.write(fact_output)
+# Функция для запроса к GPT с математической задачей
+def solve_math_problem(problem):
+    prompt = (f"you have to solve a math problem, you are a math teacher. "
+              f"Give the answer in the form of json, where the first object is a chain of thoughts and the second is a direct answer to the problem. "
+              f"In the object of thought you fully comprehend and solve the problem, in the object of the answer you give the answer to the problem without further ado. "
+              f"This is very important for my career, take a deep breath and solve this problem: {problem}\n\n"
+              f"Example:\n"
+              f"Solve the problem:\n"
+              f"{'{'}\n"
+              f"\"thoughts\":{ '{'}\n"
+              f"\"step1\":\"Vasya has 15 apples\",\n"
+              f"\"step2\":\"He shares the apples with 3 friends\",\n"
+              f"\"step3\":\"He gives each friend 3 apples\",\n"
+              f"\"step4\":\"Total apples given to friends = 3 friends * 3 apples each = 9 apples\",\n"
+              f"\"step5\":\"Apples remaining with Vasya = 15 apples - 9 apples = 6 apples\"\n"
+              f"{'}'},\n"
+              f"\"answer\":\"6\"\n"
+              f"{'}'}")
+    
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+        model="gpt-3.5-turbo",
+    )
+    
+    # Получение и обработка JSON-ответа
+    full_response = chat_completion.choices[0].message.content
+    try:
+        response_json = json.loads(full_response)
+        answer = response_json.get("answer", "No answer found")
+    except json.JSONDecodeError:
+        answer = "Error parsing JSON response"
+
+    return answer
+
+def tab_math():
+    st.title("Краткий ответ с chain of thoughts")
+    problem = st.text_area("Напишите задачу:", "У Алекса было 200 долларов. Он потратил 30 долларов на рубашку, 46 долларов на брюки, 38 долларов на пальто, 11 долларов на носки и 18 долларов на пояс. Он также купил пару обуви, но потерял чек. У него осталось 16 долларов из бюджета. Сколько Алекс заплатил за обувь?")
+    if st.button("Решить задачу", key="math_button"):
+        solution = solve_math_problem(problem)
+        st.write("Answer:", solution)
+
+def sidebar_comments_for_fact():
+    st.sidebar.title("Комментарий")
+    st.sidebar.write("Идея этого промпта, в том, что людям легче запомнить новое иностранное слово, если существует информация, с которой ее можно связать. Некоторые слова лучше подходят для формирования факта, но даже в крайних случаях LLM с этим промптом не склонна галлюцинировать. Вы можете ознакомиться с тестами промпта по ссылке: https://app.promptfoo.dev/eval/f:8c895caa-6a00-4d1c-842f-48bf8953cf41/.")
+                     
+def sidebar_comments_for_visualization():
+    st.sidebar.title("Комментарий")
+    st.sidebar.write("Если вы делаете приложения для изучения иностранных слов, то вам наверняка потребуется сделать карточку для каждого слова. С помощью этого промпта можно автоматически наполнить сайт валидными изображениями даже самых абстрактных слов. Сейчас этот промпт используется на сайте: https://langpilot.com.")
+
+# Функция для отображения содержимого в зависимости от выбранной вкладки
+def sidebar_comments_for_math():
+    st.sidebar.title("Комментарий")
+    st.sidebar.write(
+    "Вы могли слышать, что такая концепция, как chain of thoughts, может серьезно повысить количество правильных ответов на математические задачи.\n"
+    "Но представьте, что вам требуется дать ответ без лишних слов.\n"
+    "Чтобы это сделать, мы можем упаковать ответ LLM в json, где будет два объекта: 1) размышления, 2) ответ.\n\n"
+    "{\n"
+    "  \"thoughts\": {\n"
+    "    \"step1\": \"...\",\n"
+    "    \"step2\": \"...\",\n"
+    "    \"step3\": \"...\"\n"
+    "  },\n"
+    "  \"answer\": \"...\"\n"
+    "}\n"
 )
 
-# ----------------------Page config--------------------------------------
-
-st.set_page_config(page_title="GPT3 Dataset Generator", page_icon="🤖")
-
-# ----------------------Sidebar section--------------------------------
-
-# st.image(
-#    "Gifs/header.gif",
-# )
-
-st.image("Gifs/boat_new.gif")
-
-c30, c31, c32 = st.columns([0.2, 0.1, 3])
-
-with c30:
-
-    st.caption("")
-
-    st.image("openai.png", width=60)
-
-with c32:
-
-    st.title("GPT3 Dataset Generator")
-
-st.write(
-    "This app generates datasets using GPT3. It was created for the ❄️ Snowflake Snowvation Hackathon"
-)
-
-tabMain, tabInfo, tabTo_dos = st.tabs(["Main", "Info", "To-do's"])
-
-with tabInfo:
-    st.write("")
-    st.write("")
-
-    st.subheader("🤖 What is GPT-3?")
-    st.markdown(
-        "[GPT-3](https://en.wikipedia.org/wiki/GPT-3) is a large language generation model developed by [OpenAI](https://openai.com/) that can generate human-like text. It has a capacity of 175 billion parameters and is trained on a vast dataset of internet text. It can be used for tasks such as language translation, chatbot language generation, and content generation etc."
-    )
-
-    st.subheader("🎈 What is Streamlit?")
-    st.markdown(
-        "[Streamlit](https://streamlit.io) is an open-source Python library that allows users to create interactive, web-based data visualization and machine learning applications without the need for extensive web development knowledge"
-    )
-
-    st.write("---")
-
-    st.subheader("📖 Resources")
-    st.markdown(
-        """
-    - OpenAI
-        - [OpenAI Playground](https://beta.openai.com/playground)
-        - [OpenAI Documentation](https://beta.openai.com/docs)    
-    - Streamlit
-        - [Documentation](https://docs.streamlit.io/)
-        - [Gallery](https://streamlit.io/gallery)
-        - [Cheat sheet](https://docs.streamlit.io/library/cheatsheet)
-        - [Book](https://www.amazon.com/dp/180056550X) (Getting Started with Streamlit for Data Science)
-        - Deploy your apps using [Streamlit Community Cloud](https://streamlit.io/cloud) in just a few clicks 
-    """
-    )
-
-with tabTo_dos:
-
-    with st.expander("To-do", expanded=True):
-        st.write(
-            """
-        - [p2] Currently, the results are displayed even if the submit button isn't pressed.
-        - [p2] There is still an issue with the index where the first element from the JSON is not being displayed.
-        - [Post Hackathon] To limit the number of API calls and costs, let's cap the maximum number - of results to 5. Alternatively, we can consider removing the free API key.
-
-        """
-        )
-        st.write("")
-
-    with st.expander("Done", expanded=True):
-        st.write(
-            """
-        - [p2] Check if the Json file is working
-        - [p2] On Github, remove any unused images and GIFs.
-        - [p1] Add that for postgress - localhost is required
-        - [p2] Rename the CSV and JSON as per the st-pills variable
-        - [p2] Change the color of the small arrow
-        - [p1] Adjust the size of the Gifs
-        - Add a streamlit badge in the `ReadMe` file
-        - Add the message "Please enter your API key or choose the `Free Key` option."
-        - Include a `ReadMe` file
-        - Add a section for the Snowflake credentials
-        - Remove password from the Python file
-        - Add screenshots to the `ReadMe` file
-        - Include forms in the snowflake postgres section
-        - Remove the hashed code in the Python file
-        - Include additional information in the 'info' tab
-        - p1] Fix the download issue by sorting it via session state
-        - [p1] Make the dataframe from this app editable
-        - Add more gifs to the app
-        - Change the color scheme to Snowflake Blue
-        - Include a section for Snowflake credentials
-        - Change the colors of the arrows, using this tool (https://lottiefiles.com/lottie-to-gif/convert)
-        - Try new prompts and implement the best ones
-        - Add a config file for the color scheme
-        - Include an option menu using this tool (https://github.com/victoryhb/streamlit-option-menu)
-        - Display a message when the API key is not provided
-        - Fix the arrow and rearrange the layout for the API key message
-        - Check and improve the quality of the prompt output
-        - Send the app to Tony and upload it to GitHub
-        - Re-arrange the data on the sidebar
-        - Change the colors of both gifs to match the overall color scheme
-        - Add context about the app being part of the snowvation project
-        - Add a button to convert the data to JSON format
-        - Include the Snowflake logo
-        - Add a submit button to block API calls unless pressed
-        - Add a tab with additional information
-        - Resize the columns in the st.form section
-        - Add the ability to add the dataset to Snowflake
-        - Create a section with pills, showcasing examples
-        - Change the main emoji
-        - Change the emoji in the tab (page_icon)
-        - [INFO] Sort out the issue with credits
-
-
-
-        """
-        )
-        st.write("")
-
-    with st.expander("Not needed", expanded=True):
-        st.write(
-            """
-            - Check index issue in readcsv (not an issue as I've changed the script)
-            - Add the mouse gif (doesn't fit)
-            - Ask Lukas - automatically resize the columns of a DataFrame
-        """
-        )
-        st.write("")
-
-    st.write("")
-    st.write("")
-    st.write("")
-
-
-with tabMain:
-
-    key_choice = st.sidebar.radio(
-        "",
-        (
-            "Your Key",
-            "Free Key (capped)",
-        ),
-        horizontal=True,
-    )
-
-    if key_choice == "Your Key":
-
-        API_Key = st.sidebar.text_input(
-            "First, enter your OpenAI API key", type="password"
-        )
-
-    elif key_choice == "Free Key (capped)":
-
-        API_Key = st.secrets["API_KEY"]
-
-    image_arrow = st.sidebar.image(
-        "Gifs/blue_grey_arrow.gif",
-    )
-
-    if key_choice == "Free Key (capped)":
-
-        image_arrow.empty()
-
-    else:
-
-        st.write("")
-
-        st.sidebar.caption(
-            "No OpenAI API key? Get yours [here!](https://openai.com/blog/api-no-waitlist/)"
-        )
-        pass
-
-    st.write("")
-
-    c30, c31, c32 = st.columns([0.2, 0.1, 3])
-
-    st.subheader("① Build your dataset")
-
-    example = pills(
-        "",
-        [
-            "Sci-fi Movies",
-            "Animals",
-            "Pop Songs",
-            "POTUS's Twitter",
-            "Blank",
-        ],
-        [
-            "🍿",
-            "🐎",
-            "🎵",
-            "🇺🇸",
-            "👻",
-        ],
-        label_visibility="collapsed",
-    )
-
-    if "counter" not in st.session_state:
-        st.session_state.counter = 0
-
-    def increment():
-        st.session_state.counter += 1
-
-    if example == "Sci-fi Movies":
-
-        with st.form("my_form"):
-
-            text_input = st.text_input(
-                "What is the topic of your dataset?", value="Sci-fi movies"
-            )
-
-            col1, col2, col3 = st.columns(3, gap="small")
-
-            with col1:
-                column_01 = st.text_input("1st column", value="Title")
-
-            with col2:
-                column_02 = st.text_input("2nd column", value="Year")
-
-            with col3:
-                column_03 = st.text_input("3rd column", value="PG rating")
-
-            col1, col2 = st.columns(2, gap="medium")
-
-            with col1:
-                number = st.number_input(
-                    "How many rows do you want?",
-                    value=5,
-                    min_value=1,
-                    max_value=20,
-                    step=5,
-                    help="The maximum number of rows is 20.",
-                )
-
-            with col2:
-                engine = st.radio(
-                    "GPT3 engine",
-                    (
-                        "Davinci",
-                        "Curie",
-                        "Babbage",
-                    ),
-                    horizontal=True,
-                    help="Davinci is the most powerful engine, but it's also the slowest. Curie is the fastest, but it's also the least powerful. Babbage is somewhere in the middle.",
-                )
-
-                if engine == "Davinci":
-                    engine = "davinci-instruct-beta-v3"
-                elif engine == "Curie":
-                    engine = "curie-instruct-beta-v2"
-                elif engine == "Babbage":
-                    engine = "babbage-instruct-beta"
-
-            st.write("")
-
-            submitted = st.form_submit_button("Build my dataset! ✨", on_click=increment)
-
-    elif example == "Animals":
-
-        with st.form("my_form"):
-
-            text_input = st.text_input(
-                "What is the topic of your dataset?", value="Fastest animals on earth"
-            )
-
-            col1, col2, col3 = st.columns(3, gap="small")
-
-            with col1:
-                column_01 = st.text_input("1st column", value="Animal")
-
-            with col2:
-                column_02 = st.text_input("2nd column", value="Speed")
-
-            with col3:
-                column_03 = st.text_input("3rd column", value="Weight")
-
-            col1, col2 = st.columns(2, gap="medium")
-
-            with col1:
-                number = st.number_input(
-                    "How many rows do you want?",
-                    value=5,
-                    min_value=1,
-                    max_value=20,
-                    step=5,
-                    help="The maximum number of rows is 50.",
-                )
-
-            with col2:
-                engine = st.radio(
-                    "GPT3 engine",
-                    (
-                        "Davinci",
-                        "Curie",
-                        "Babbage",
-                    ),
-                    horizontal=True,
-                    help="Davinci is the most powerful engine, but it's also the slowest. Curie is the fastest, but it's also the least powerful. Babbage is somewhere in the middle.",
-                )
-
-                if engine == "Davinci":
-                    engine = "davinci-instruct-beta-v3"
-                elif engine == "Curie":
-                    engine = "curie-instruct-beta-v2"
-                elif engine == "Babbage":
-                    engine = "babbage-instruct-beta"
-
-            st.write("")
-
-            submitted = st.form_submit_button("Build my dataset! ✨", on_click=increment)
-
-    elif example == "Stocks":
-
-        with st.form("my_form"):
-
-            text_input = st.text_input(
-                "What is the topic of your dataset?", value="Stocks"
-            )
-
-            col1, col2, col3 = st.columns(3, gap="small")
-
-            with col1:
-                column_01 = st.text_input("1st column", value="Ticker")
-
-            with col2:
-                column_02 = st.text_input("2nd column", value="Price")
-
-            with col3:
-                column_03 = st.text_input("3rd column", value="Exchange")
-
-            col1, col2 = st.columns(2, gap="medium")
-
-            with col1:
-                number = st.number_input(
-                    "How many rows do you want?",
-                    value=5,
-                    min_value=1,
-                    max_value=20,
-                    step=5,
-                    help="The maximum number of rows is 50.",
-                )
-
-            with col2:
-                engine = st.radio(
-                    "GPT3 engine",
-                    (
-                        "Davinci",
-                        "Curie",
-                        "Babbage",
-                    ),
-                    horizontal=True,
-                    help="Davinci is the most powerful engine, but it's also the slowest. Curie is the fastest, but it's also the least powerful. Babbage is somewhere in the middle.",
-                )
-
-                if engine == "Davinci":
-                    engine = "davinci-instruct-beta-v3"
-                elif engine == "Curie":
-                    engine = "curie-instruct-beta-v2"
-                elif engine == "Babbage":
-                    engine = "babbage-instruct-beta"
-
-            st.write("")
-
-            submitted = st.form_submit_button("Build my dataset! ✨", on_click=increment)
-
-    elif example == "POTUS's Twitter":
-
-        with st.form("my_form"):
-
-            text_input = st.text_input(
-                "What is the topic of your dataset?", value="POTUS's Twitter accounts"
-            )
-
-            col1, col2, col3 = st.columns(3, gap="small")
-
-            with col1:
-                column_01 = st.text_input("1st column", value="Name")
-
-            with col2:
-                column_02 = st.text_input("2nd column", value="Twitter handle")
-
-            with col3:
-                column_03 = st.text_input("3rd column", value="# of followers")
-
-            col1, col2 = st.columns(2, gap="medium")
-
-            with col1:
-                number = st.number_input(
-                    "How many rows do you want?",
-                    value=5,
-                    min_value=1,
-                    max_value=20,
-                    step=5,
-                    help="The maximum number of rows is 50.",
-                )
-
-            with col2:
-                engine = st.radio(
-                    "GPT3 engine",
-                    (
-                        "Davinci",
-                        "Curie",
-                        "Babbage",
-                    ),
-                    horizontal=True,
-                    help="Davinci is the most powerful engine, but it's also the slowest. Curie is the fastest, but it's also the least powerful. Babbage is somewhere in the middle.",
-                )
-
-                if engine == "Davinci":
-                    engine = "davinci-instruct-beta-v3"
-                elif engine == "Curie":
-                    engine = "curie-instruct-beta-v2"
-                elif engine == "Babbage":
-                    engine = "babbage-instruct-beta"
-
-            st.write("")
-
-            submitted = st.form_submit_button("Build my dataset! ✨")
-
-    elif example == "Pop Songs":
-
-        with st.form("my_form"):
-
-            text_input = st.text_input(
-                "What is the topic of your dataset?",
-                value="Most famous songs of all time",
-            )
-
-            col1, col2, col3 = st.columns(3, gap="small")
-
-            with col1:
-                column_01 = st.text_input("1st column", value="Song")
-
-            with col2:
-                column_02 = st.text_input("2nd column", value="Artist")
-
-            with col3:
-                column_03 = st.text_input("3rd column", value="Genre")
-
-            col1, col2 = st.columns(2, gap="medium")
-
-            with col1:
-                number = st.number_input(
-                    "How many rows do you want?",
-                    value=5,
-                    min_value=1,
-                    max_value=20,
-                    step=5,
-                    help="The maximum number of rows is 50.",
-                )
-
-            with col2:
-                engine = st.radio(
-                    "GPT3 engine",
-                    (
-                        "Davinci",
-                        "Curie",
-                        "Babbage",
-                    ),
-                    horizontal=True,
-                    help="Davinci is the most powerful engine, but it's also the slowest. Curie is the fastest, but it's also the least powerful. Babbage is somewhere in the middle.",
-                )
-
-                if engine == "Davinci":
-                    engine = "davinci-instruct-beta-v3"
-                elif engine == "Curie":
-                    engine = "curie-instruct-beta-v2"
-                elif engine == "Babbage":
-                    engine = "babbage-instruct-beta"
-
-            st.write("")
-
-            submitted = st.form_submit_button("Build my dataset! ✨")
-
-    elif example == "Blank":
-
-        with st.form("my_form"):
-
-            text_input = st.text_input("What is the topic of your dataset?", value="")
-
-            col1, col2, col3 = st.columns(3, gap="small")
-
-            with col1:
-                column_01 = st.text_input("1st column", value="")
-
-            with col2:
-                column_02 = st.text_input("2nd column", value="")
-
-            with col3:
-                column_03 = st.text_input("3rd column", value="")
-
-            col1, col2 = st.columns(2, gap="medium")
-
-            with col1:
-                number = st.number_input(
-                    "How many rows do you want?",
-                    value=5,
-                    min_value=1,
-                    max_value=20,
-                    step=5,
-                    help="The maximum number of rows is 50.",
-                )
-
-            with col2:
-                engine = st.radio(
-                    "GPT3 engine",
-                    (
-                        "Davinci",
-                        "Curie",
-                        "Babbage",
-                    ),
-                    horizontal=True,
-                    help="Davinci is the most powerful engine, but it's also the slowest. Curie is the fastest, but it's also the least powerful. Babbage is somewhere in the middle.",
-                )
-
-                if engine == "Davinci":
-                    engine = "davinci-instruct-beta-v3"
-                elif engine == "Curie":
-                    engine = "curie-instruct-beta-v2"
-                elif engine == "Babbage":
-                    engine = "babbage-instruct-beta"
-
-            st.write("")
-
-            submitted = st.form_submit_button("Build my dataset! ✨")
-
-    # ----------------------API key section----------------------------------
-
-    number = number + 1
-
-    if not API_Key and not submitted:
-
-        st.stop()
-
-    if not API_Key and submitted:
-
-        st.info("Please enter your API key or choose the `Free Key` option.")
-        st.stop()
-
-    if st.session_state.counter >= 100:
-
-        pass
-
-    # ----------------------API key section----------------------------------
-
-    if not submitted and st.session_state.counter == 0:
-
-        c30, c31, c32 = st.columns([1, 0.01, 4])
-
-        with c30:
-
-            st.image("Gifs/arrow_small_new.gif")
-            st.caption("")
-
-        with c32:
-
-            st.caption("")
-            st.caption("")
-
-            st.info(
-                "Enter your dataset's criteria and click the button to generate it."
-            )
-
-            st.stop()
-
-    elif st.session_state.counter > 0:
-
-        c30, c31, c32 = st.columns([1, 0.9, 3])
-
-        openai.api_key = API_Key
-
-        # ----------------------API call section----------------------------------
-
-        response = openai.Completion.create(
-            model=engine,
-            prompt=f"Please provide a list of the top {number} {text_input} along with the following information in a three-column spreadsheet: {column_01}, {column_02}, and {column_03}. The columns should be labeled as follows: {column_01} | {column_02} | {column_03}",
-            temperature=0.5,
-            max_tokens=1707,
-            top_p=1,
-            best_of=2,
-            frequency_penalty=0,
-            presence_penalty=0,
-        )
-
-        st.write("___")
-
-        st.subheader("② Check the results")
-
-        with st.expander("See the API Json output"):
-            response
-
-        output_code = response["choices"][0]["text"]
-
-        # ----------------------Dataframe section----------------------------------
-
-        # create pandas DataFrame from string
-        df = pd.read_csv(io.StringIO(output_code), sep="|")
-        # get the number of columns in the dataframe
-        num_columns = len(df.columns)
-
-        # create a list of column names
-        column_names = ["Column {}".format(i) for i in range(1, num_columns + 1)]
-
-        # add the header to the dataframe
-        df.columns = column_names
-
-        # specify the mapping of old column names to new column names
-        column_mapping = {
-            "Column 1": column_01,
-            "Column 2": column_02,
-            "Column 3": column_03,
-        }
-
-        # rename the columns of the dataframe
-        df = df.rename(columns=column_mapping)
-
-        st.write("")
-
-        # ----------------------AgGrid section----------------------------------
-
-        gd = GridOptionsBuilder.from_dataframe(df)
-        gd.configure_pagination(enabled=True)
-        gd.configure_default_column(editable=True, groupable=True)
-        gd.configure_selection(selection_mode="multiple")
-        gridoptions = gd.build()
-        grid_table = AgGrid(
-            df,
-            gridOptions=gridoptions,
-            update_mode=GridUpdateMode.SELECTION_CHANGED,
-            theme="material",
-        )
-
-        # df
-
-        # ----------------------Download section--------------------------------------
-
-        c30, c31, c32, c33 = st.columns([1, 0.01, 1, 2.5])
-
-        with c30:
-
-            @st.cache
-            def convert_df(df):
-                return df.to_csv().encode("utf-8")
-
-            csv = convert_df(df)
-
-            st.download_button(
-                label="Download CSV",
-                data=csv,
-                file_name=f"{example} dataset .csv",
-                mime="text/csv",
-            )
-
-        with c32:
-
-            json_string = df.to_json(orient="records")
-
-            st.download_button(
-                label="Download JSON",
-                data=json_string,
-                file_name="data_set_sample.json",
-                mime="text/csv",
-            )
-
-    st.write("___")
-
-    st.subheader("③ Load data to Databases")
-
-    # Data to load to database(s)
-    # df = pd.read_csv("philox-testset-1.csv")
-
-    # Get user input for data storage option
-    storage_option = st.radio(
-        "Select data storage option:",
-        (
-            "Snowflake",
-            "PostgreSQL",
-        ),
-        horizontal=True,
-    )
-
-    # Get user input for data storage option
-    # Snowflake = st.selectbox(
-    #    "Select data storage option:", ["Snowflake", "Snowflake"]
-    # )
-
-    @st.cache(allow_output_mutation=True)
-    def reset_form_fields():
-        user = ""
-        password = ""
-        account = ""
-        warehouse = ""
-        database = ""
-        schema = ""
-        table = ""
-        host = ""
-        port = ""
-
-    if storage_option == "Snowflake":
-        st.subheader("`Enter Snowflake Credentials`👇")
-        # Get user input for Snowflake credentials
-
-        with st.form("my_form_db"):
-
-            col1, col2 = st.columns(2, gap="small")
-
-            with col1:
-                user = st.text_input("Username:", value="TONY")
-            with col2:
-                password = st.text_input("Password:", type="password")
-
-            with col1:
-                account = st.text_input("Account:", value="jn27194.us-east4.gcp")
-            with col2:
-                warehouse = st.text_input("Warehouse:", value="NAH")
-
-            with col1:
-                database = st.text_input("Database:", value="SNOWVATION")
-            with col2:
-                schema = st.text_input("Schema:", value="PUBLIC")
-
-            table = st.text_input("Table:")
-
-            st.write("")
-
-            submitted = st.form_submit_button("Load to Snowflake")
-
-        # Load the data to Snowflake
-        if submitted:
-            # if st.button("Load data to Snowflake"):
-            if (
-                user
-                and password
-                and account
-                and warehouse
-                and database
-                and schema
-                and table
-            ):
-                conn = connect_to_snowflake(
-                    username=user,
-                    password=password,
-                    account=account,
-                    warehouse=warehouse,
-                    database=database,
-                    schema=schema,
-                )
-                if conn:
-                    load_data_to_snowflake(df, conn, table)
-            else:
-                st.warning("Please enter all Snowflake credentials")
-
-    elif storage_option == "PostgreSQL":
-        st.subheader("`Enter PostgreSQL Credentials`👇")
-        st.error("Localhost only")
-        # Get user input for PostgreSQL credentials
-
-        with st.form("my_form_db"):
-
-            col1, col2 = st.columns(2, gap="small")
-
-            with col1:
-                user = st.text_input("Username:", value="postgres")
-            with col2:
-                password = st.text_input("Password:", type="password")
-            with col1:
-                host = st.selectbox("Host:", ["localhost", "other"])
-                if host == "other":
-                    host = st.text_input("Enter host:")
-            with col2:
-                port = st.text_input("Port:", value="5432")
-            with col1:
-                database = st.text_input("Database:", value="snowvation")
-            with col2:
-                table = st.text_input("Table:")
-
-            st.write("")
-
-            submitted = st.form_submit_button("Load to PostgreSQL")
-
-        # Load the data to PostgreSQL
-        # if st.button("Load data to PostgreSQL"):
-        if submitted:
-            if user and password and host and port and database and table:
-                conn = connect_to_postgres(
-                    username=user,
-                    password=password,
-                    host=host,
-                    port=port,
-                    database=database,
-                )
-                if conn:
-                    load_data_to_postgres(df, conn, table)
-            else:
-                st.warning("Please enter all PostgreSQL credentials and table name")
-
-    # Reset form fields when storage_option changes
-    reset_form_fields()
+# Функция для отображения содержимого в зависимости от выбранной вкладки
+def display_tab_content():
+    if st.session_state.current_tab == "fact":
+        sidebar_comments_for_fact()
+        tab_fact()
+    elif st.session_state.current_tab == "visualize":
+        sidebar_comments_for_visualization()
+        tab_visualize()
+    elif st.session_state.current_tab == "math":
+        sidebar_comments_for_math()
+        tab_math()
+
+# Инициализация состояния сессии
+if 'current_tab' not in st.session_state:
+    st.session_state.current_tab = "visualize"
+
+# Создаем три столбца
+col1, col2, col3 = st.columns(3)
+
+# В первом столбце размещаем кнопку для генерации фактов
+with col1:
+    if st.button("🎨 Визуализация слов"):
+        st.session_state.current_tab = "visualize"
+
+with col2:
+    if st.button("💡 Краткое решение"):
+        st.session_state.current_tab = "math"
+
+with col3:
+    if st.button("🔍 Генерация фактов"):
+        st.session_state.current_tab = "fact"
+# Используйте Markdown для создания подвала
+st.markdown("""
+    <style>
+    .footer {
+        font-size: 16px;
+        color: #000; /* Изменение цвета текста на черный */
+        background-color: #ddf1ff;
+        padding: 10px;
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+        text-align: left;
+        border-radius: 10px; /* Добавление закругленных краев */
+    }
+    </style>
+    <div class="footer">
+        Темченко Сергей: &nbsp;&nbsp;ebyuxrot@gmail.com / <a href="https://t.me/N3VERZzz">Telegram</a>
+    </div>
+""", unsafe_allow_html=True)
+
+
+
+# Отображение содержимого
+display_tab_content()

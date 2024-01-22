@@ -1,6 +1,6 @@
 [theme]
-base="light"
-#old
-#primaryColor="#18447c"
-#new
-primaryColor="#2BB5E8"
+primaryColor =  "#00172B" 
+backgroundColor = "#FFFFFF"  # Белый фон
+secondaryBackgroundColor = "#ddf1ff"  # Пастельный голубой
+textColor = "#303030"  # Темно-серый для лучшей читаемости
+font = "sans serif"
